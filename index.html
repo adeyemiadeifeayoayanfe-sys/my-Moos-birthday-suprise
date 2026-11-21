@@ -870,9 +870,9 @@ body.modal-open{overflow:hidden}
 .subnav .btn{font-size:.58rem;padding:.62rem 1rem;min-height:40px;letter-spacing:.14em}
 
 /* ============================================================
-   18. BACKGROUND MUSIC — HIDDEN HOST + FLOATING TOGGLE
+   18. BACKGROUND MUSIC — HIDDEN YOUTUBE HOST + FLOATING TOGGLE
    ============================================================ */
-#musicHost{
+#ytHost{
   position:fixed;
   left:-9999px;
   top:-9999px;
@@ -882,11 +882,6 @@ body.modal-open{overflow:hidden}
   opacity:0;
   pointer-events:none;
   z-index:0;
-}
-#musicHost video{
-  width:1px;
-  height:1px;
-  display:block;
 }
 
 .music-toggle{
@@ -958,7 +953,7 @@ body.modal-open{overflow:hidden}
 
 <div id="confettiHost"></div>
 <div id="flash"></div>
-<div id="musicHost"></div>
+<div id="ytHost"></div>
 
 <button id="musicToggle" class="music-toggle" type="button" aria-label="Play background music" aria-pressed="false"></button>
 
@@ -1325,7 +1320,9 @@ body.modal-open{overflow:hidden}
 
       <div class="player-actions">
         <button class="btn btn--solid" id="playPauseBtn" type="button">&#9654; PLAY</button>
-        <button class="btn" id="restartBtn" type="button">&#8635; RESTART</button>
+        <a class="btn" href="https://www.youtube.com/watch?v=9JTGInsaSRU" target="_blank" rel="noopener noreferrer">
+          OPEN ON YOUTUBE &rarr;
+        </a>
       </div>
     </div>
   </div>
@@ -1365,12 +1362,12 @@ body.modal-open{overflow:hidden}
    CONFIGURATION
    ============================================================ */
 
-/* Background music — a local file called song.mp4 in the root
-   of the site. It is played via a hidden <video> element so it
-   works reliably across browsers, and loops on itself. The
-   floating bottom-right toggle controls mute/unmute from any
-   screen, and the Song screen has its own controls too. */
-const SONG_SRC = 'song.mp4';
+/* Background music — the YouTube video plays muted and off-screen,
+   looping on itself, for the whole experience. The user can
+   unmute at any time via the floating toggle button or the
+   controls on the "Song For You" screen. */
+const YT_VIDEO_ID = '9JTGInsaSRU';
+const YT_WATCH_URL = 'https://www.youtube.com/watch?v=9JTGInsaSRU';
 
 /* ============================================================
    SHARED SVG GRAPHICS
@@ -1499,87 +1496,79 @@ function flyBallAcross(){
 }
 
 /* ============================================================
-   BACKGROUND MUSIC — local song.mp4
+   BACKGROUND MUSIC (YouTube, hidden iframe)
    ============================================================ */
-let bgVideo = null;
+let ytPlayer = null;
 let musicMuted = true;
 let musicInitialized = false;
+
+function sendYTCommand(func, args){
+  if(!ytPlayer || !ytPlayer.contentWindow) return;
+  try{
+    ytPlayer.contentWindow.postMessage(
+      JSON.stringify({ event: 'command', func: func, args: args || [] }),
+      '*'
+    );
+  } catch(err){ /* swallow */ }
+}
 
 function initBackgroundMusic(){
   if(musicInitialized) return;
   musicInitialized = true;
 
-  const host = document.getElementById('musicHost');
+  const host = document.getElementById('ytHost');
   if(!host) return;
 
-  bgVideo = document.createElement('video');
-  bgVideo.src = SONG_SRC;
-  bgVideo.loop = true;
-  bgVideo.playsInline = true;
-  bgVideo.preload = 'auto';
-  bgVideo.setAttribute('aria-hidden', 'true');
-  bgVideo.setAttribute('tabindex', '-1');
-  bgVideo.setAttribute('muted', '');
-  bgVideo.muted = true;
-  bgVideo.addEventListener('error', function(){
-    const status = document.getElementById('playerStatus');
-    if(status){
-      status.textContent = 'SONG FILE NOT FOUND';
-      status.classList.remove('live');
-    }
-  });
-  host.appendChild(bgVideo);
+  const iframe = document.createElement('iframe');
+  iframe.id = 'ytBg';
+  iframe.src =
+    'https://www.youtube.com/embed/' + YT_VIDEO_ID +
+    '?enablejsapi=1' +
+    '&autoplay=1' +
+    '&mute=1' +
+    '&loop=1' +
+    '&playlist=' + YT_VIDEO_ID +
+    '&controls=0' +
+    '&modestbranding=1' +
+    '&playsinline=1' +
+    '&rel=0' +
+    '&iv_load_policy=3' +
+    '&fs=0' +
+    '&disablekb=1';
+  iframe.allow = 'autoplay; encrypted-media';
+  iframe.setAttribute('frameborder', '0');
+  iframe.setAttribute('allowfullscreen', 'false');
+  iframe.setAttribute('tabindex', '-1');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.title = 'Background music: Temptress (No Drums) by Odeal';
+  host.appendChild(iframe);
+  ytPlayer = iframe;
 
-  /* We were called from a user gesture (gate success), so try to
-     play with sound straight away. If the browser blocks it, fall
-     back to muted playback and let the toggle unlock it. */
-  bgVideo.muted = false;
-  const attempt = bgVideo.play();
-
-  if(attempt && typeof attempt.then === 'function'){
-    attempt.then(function(){
-      musicMuted = false;
-      updateMusicUI();
-    }).catch(function(){
-      bgVideo.muted = true;
-      musicMuted = true;
-      updateMusicUI();
-      const fallback = bgVideo.play();
-      if(fallback && typeof fallback.catch === 'function'){
-        fallback.catch(function(){ /* fully blocked — toggle will handle it */ });
-      }
-    });
-  } else {
+  /* Try to unmute shortly after the player is ready. The gate tap
+     that triggered this counts as a user gesture, so the unmute
+     usually succeeds. If the browser blocks it, the toggle unlocks it. */
+  window.setTimeout(function(){
+    sendYTCommand('unMute');
+    sendYTCommand('playVideo');
     musicMuted = false;
     updateMusicUI();
-  }
+  }, 1800);
 }
 
 function toggleMusic(){
-  if(!bgVideo){
+  if(!ytPlayer){
     initBackgroundMusic();
     document.getElementById('musicToggle').classList.add('visible');
     return;
   }
   if(musicMuted){
-    bgVideo.muted = false;
-    const p = bgVideo.play();
-    if(p && typeof p.catch === 'function') p.catch(function(){});
+    sendYTCommand('unMute');
+    sendYTCommand('playVideo');
     musicMuted = false;
   } else {
-    bgVideo.muted = true;
+    sendYTCommand('mute');
     musicMuted = true;
   }
-  updateMusicUI();
-}
-
-function restartMusic(){
-  if(!bgVideo){ initBackgroundMusic(); return; }
-  try{ bgVideo.currentTime = 0; } catch(err){}
-  bgVideo.muted = false;
-  const p = bgVideo.play();
-  if(p && typeof p.catch === 'function') p.catch(function(){});
-  musicMuted = false;
   updateMusicUI();
 }
 
@@ -1615,7 +1604,6 @@ document.getElementById('musicToggle').innerHTML = ICON_MUTED;
 document.getElementById('musicToggle').addEventListener('click', toggleMusic);
 document.getElementById('vinyl').addEventListener('click', toggleMusic);
 document.getElementById('playPauseBtn').addEventListener('click', toggleMusic);
-document.getElementById('restartBtn').addEventListener('click', restartMusic);
 
 /* ============================================================
    SCREEN 1 — PASSWORD GATE
